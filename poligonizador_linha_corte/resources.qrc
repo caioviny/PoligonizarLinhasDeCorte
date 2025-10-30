@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/poligonizador_linha_corte" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
