@@ -6,8 +6,8 @@ Plugin para poligonizar linhas de corte e gerar lotes automaticamente
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QTimer
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QToolBar, QApplication
-from qgis.core import (QgsProcessing, QgsProcessingMultiStepFeedback, 
-                       QgsProviderRegistry, QgsCoordinateReferenceSystem, 
+from qgis.core import (QgsProcessing, QgsProcessingMultiStepFeedback,
+                       QgsProviderRegistry, QgsCoordinateReferenceSystem,
                        QgsProject, QgsVectorLayer, QgsWkbTypes,
                        QgsFeatureRequest, QgsGeometry, QgsPointXY)
 from qgis.gui import QgsMapToolIdentify, QgsMapTool, QgsRubberBand
@@ -18,10 +18,9 @@ from .services.Notification import show_notification
 import os.path
 import math
 
-
 class MapToolSelectQuadra(QgsMapTool):
     """Ferramenta de seleção de quadras com polígono e CTRL+Clique"""
-    
+
     def __init__(self, canvas, layer, callback, parent):
         super().__init__(canvas)
         self.canvas = canvas
@@ -33,30 +32,31 @@ class MapToolSelectQuadra(QgsMapTool):
         self.polygon_points = []
         self.rubberBand = None
         self.primeira_selecao_ctrl = True
-        
+
         self.notification_timer = QTimer()
         self.notification_timer.setSingleShot(True)
         self.notification_timer.timeout.connect(self._mostrar_notificacao_acumulada)
         self.pending_notification = None
         self.criar_rubber_band()
-    
+
     def criar_rubber_band(self):
         if not self.rubberBand:
             self.rubberBand = QgsRubberBand(self.canvas, QgsWkbTypes.PolygonGeometry)
             self.rubberBand.setColor(Qt.red)
             self.rubberBand.setFillColor(Qt.transparent)
             self.rubberBand.setWidth(2)
-    
+
     def _mostrar_notificacao_acumulada(self):
         if self.pending_notification:
             show_notification(**self.pending_notification)
             self.pending_notification = None
-    
+
     def _agendar_notificacao(self, titulo, mensagem, tipo="info", duracao=1500, delay=300):
         self.pending_notification = {'titulo': titulo, 'mensagem': mensagem, 'tipo': tipo, 'duracao': duracao}
+
         self.notification_timer.stop()
         self.notification_timer.start(delay)
-    
+
     def _atualizar_barra_status(self):
         num = self.layer.selectedFeatureCount()
         self.parent_plugin.iface.messageBar().clearWidgets()
@@ -65,7 +65,7 @@ class MapToolSelectQuadra(QgsMapTool):
             f"📊 {num} selecionada(s) | 🖱️ Clique=polígono | ⌨️ CTRL+Clique=individual | ⏎ ENTER=confirmar",
             level=0, duration=0
         )
-    
+
     def canvasPressEvent(self, event):
         if event.modifiers() & Qt.ControlModifier and event.button() == Qt.LeftButton:
             self.selecionar_individual(event)
@@ -73,7 +73,7 @@ class MapToolSelectQuadra(QgsMapTool):
             self.adicionar_ponto_poligono(event)
         elif event.button() == Qt.RightButton:
             self.finalizar_poligono()
-    
+
     def canvasMoveEvent(self, event):
         if self.is_drawing_polygon and self.polygon_points:
             if not self.rubberBand:
@@ -83,7 +83,7 @@ class MapToolSelectQuadra(QgsMapTool):
                 self.rubberBand.addPoint(point, False)
             self.rubberBand.addPoint(self.toMapCoordinates(event.pos()), True)
             self.rubberBand.show()
-    
+
     def adicionar_ponto_poligono(self, event):
         point = self.toMapCoordinates(event.pos())
         self.polygon_points.append(point)
@@ -96,11 +96,11 @@ class MapToolSelectQuadra(QgsMapTool):
             show_notification("Desenhando", "Continue clicando. Botão DIREITO finaliza.", "info", 2000)
         self.parent_plugin.iface.messageBar().clearWidgets()
         self.parent_plugin.iface.messageBar().pushMessage(
-            "Desenhando", 
+            "Desenhando",
             f"{len(self.polygon_points)} pontos | Botão DIREITO=finalizar | ⏎ ENTER=confirmar",
             level=0, duration=0
         )
-    
+
     def finalizar_poligono(self):
         if len(self.polygon_points) < 3:
             if self.polygon_points:
@@ -111,17 +111,17 @@ class MapToolSelectQuadra(QgsMapTool):
         count = sum(1 for f in self.layer.getFeatures(QgsFeatureRequest().setFilterRect(polygon_geom.boundingBox()))
                    if polygon_geom.intersects(f.geometry()) and self.layer.select(f.id()) is None)
         if count:
-            show_notification("Seleção Concluída", f"{count} quadra(s) adicionadas. ENTER confirma.", "success", 8000)
+            show_notification("Seleção Concluída", f"{count} quadra(s) selecionadas. ENTER confirma.", "info", 5000)
         self._atualizar_barra_status()
         self.limpar_poligono()
-    
+
     def limpar_poligono(self):
         self.polygon_points.clear()
         self.is_drawing_polygon = False
         if self.rubberBand:
             self.rubberBand.reset(QgsWkbTypes.PolygonGeometry)
             self.rubberBand.hide()
-    
+
     def selecionar_individual(self, event):
         results = QgsMapToolIdentify(self.canvas).identify(
             event.x(), event.y(), [self.layer], QgsMapToolIdentify.TopDownStopAtFirst
@@ -135,7 +135,7 @@ class MapToolSelectQuadra(QgsMapTool):
                 self.layer.deselect(feature.id())
             if self.primeira_selecao_ctrl:
                 self.primeira_selecao_ctrl = False
-                show_notification("Seleção Individual", 
+                show_notification("Seleção Individual",
                     "💡 CTRL+Clique adiciona/remove. ENTER finaliza.", "info", 2500)
             else:
                 self._agendar_notificacao(
@@ -150,7 +150,7 @@ class MapToolSelectQuadra(QgsMapTool):
             self.notification_timer.stop()
             self.pending_notification = None
             show_notification("Nenhuma Quadra", "Nenhuma quadra neste ponto", "warning", 1500)
-    
+
     def deactivate(self):
         if hasattr(self, 'notification_timer'):
             self.notification_timer.stop()
@@ -159,13 +159,13 @@ class MapToolSelectQuadra(QgsMapTool):
             self.canvas.scene().removeItem(self.rubberBand)
             self.rubberBand = None
         super().deactivate()
-    
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.limpar_poligono()
             if self.layer:
                 self.layer.removeSelection()
-                self._agendar_notificacao("Cancelado", "Polígono e seleção limpos", "info", 1200, 500)
+                self._agendar_notificacao("Cancelado", "Polígono e seleção limpos", "info", 1200, 1000)
             self._atualizar_barra_status()
         elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
             self.notification_timer.stop()
@@ -174,10 +174,9 @@ class MapToolSelectQuadra(QgsMapTool):
             return
         event.ignore()
 
-
 class PoligonizadorLinhaCorte:
     """Plugin de Poligonização"""
-    
+
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
@@ -196,12 +195,26 @@ class PoligonizadorLinhaCorte:
         self.previous_map_tool = None
         self.custom_map_tool = None
         self.quadra_layer_ref = None
-    
+        self.notification_timer = QTimer()
+        self.notification_timer.setSingleShot(True)
+        self.notification_timer.timeout.connect(self._mostrar_notificacao_acumulado)
+        self.pending_notification = None
+
+    def _mostrar_notificacao_acumulado(self):
+        if self.pending_notification:
+            show_notification(**self.pending_notification)
+            self.pending_notification = None
+
+    def _agendar_notificacao(self, titulo, mensagem, tipo="info", duracao=1500, delay=300):
+        self.pending_notification = {'titulo': titulo, 'mensagem': mensagem, 'tipo': tipo, 'duracao': duracao}
+        self.notification_timer.stop()
+        self.notification_timer.start(delay)
+
     def tr(self, message):
         return QCoreApplication.translate('PoligonizadorLinhaCorte', message)
-    
-    def add_action(self, icon_path, text, callback, enabled_flag=True, 
-                   add_to_menu=True, add_to_toolbar=True, status_tip=None, 
+
+    def add_action(self, icon_path, text, callback, enabled_flag=True,
+                   add_to_menu=True, add_to_toolbar=True, status_tip=None,
                    whats_this=None, parent=None):
         action = QAction(QIcon(icon_path), text, parent)
         action.triggered.connect(callback)
@@ -216,7 +229,7 @@ class PoligonizadorLinhaCorte:
             self.iface.addPluginToVectorMenu(self.menu, action)
         self.actions.append(action)
         return action
-    
+
     def initGui(self):
         self.toolbar = next((tb for tb in self.iface.mainWindow().findChildren(QToolBar)
                             if tb.objectName() == 'UMCGEO' or tb.windowTitle() == 'UMCGEO'), None)
@@ -230,7 +243,7 @@ class PoligonizadorLinhaCorte:
             parent=self.iface.mainWindow()
         )
         self.first_start = True
-    
+
     def unload(self):
         for action in self.actions:
             self.iface.removePluginVectorMenu(self.tr(u'&Poligonizador de Linha de Corte'), action)
@@ -239,7 +252,7 @@ class PoligonizadorLinhaCorte:
         if self.previous_map_tool:
             self.iface.mapCanvas().setMapTool(self.previous_map_tool)
         self.custom_map_tool = None
-    
+
     def popular_conexoes(self):
         self.dlg.combo_conexao.clear()
         metadata = QgsProviderRegistry.instance().providerMetadata('postgres')
@@ -247,9 +260,9 @@ class PoligonizadorLinhaCorte:
             for name in metadata.connections().keys():
                 self.dlg.combo_conexao.addItem(name, name)
         if self.dlg.combo_conexao.count() == 0:
-            QMessageBox.warning(self.dlg, "Aviso", 
+            QMessageBox.warning(self.dlg, "Aviso",
                 "Nenhuma conexão PostgreSQL!\nConfigure no Gerenciador de Fontes.")
-    
+
     def selecionar_quadra(self):
         quadra_layers = QgsProject.instance().mapLayersByName('Quadra')
         if not quadra_layers:
@@ -273,11 +286,12 @@ class PoligonizadorLinhaCorte:
             "🖱️ Polígono (botão direito finaliza) | ⌨️ CTRL+Clique individual | ⏎ ENTER confirma",
             level=0, duration=0
         )
-        show_notification("Modo Seleção", 
-            "🖱️ Cliques múltiplos=polígono\n⌨️ CTRL+Clique=individual\n⏎ ENTER=confirmar",
-            "info", 5000
-        )
-    
+        self._agendar_notificacao(
+                        "Modo Seleção",
+                        f"🖱️ Cliques múltiplos=polígono\n⌨️ CTRL+Clique=individual\n⏎ ENTER=confirmar",
+                        "info", 5000,1000
+                    )
+
     def confirmar_selecao_e_reabrir_dialogo(self):
         quadra_layers = QgsProject.instance().mapLayersByName('Quadra')
         if not quadra_layers:
@@ -307,10 +321,10 @@ class PoligonizadorLinhaCorte:
         self.dlg.show()
         self.dlg.raise_()
         self.dlg.activateWindow()
-    
+
     def atualizar_info_selecao(self):
         pass
-    
+
     def finalizar_selecao_quadras(self):
         quadra_layers = QgsProject.instance().mapLayersByName('Quadra')
         if not quadra_layers or quadra_layers[0].selectedFeatureCount() == 0:
@@ -323,25 +337,21 @@ class PoligonizadorLinhaCorte:
             return
         resposta = QMessageBox.question(
             self.dlg, "Confirmar Poligonização",
-            f"Executar poligonização de {num} quadra(s)?\n\nConexão: {conexao}\n\n⚠️ Insere novos lotes no banco.",
+            f"Executar poligonização de {num} quadra(s)?\n\nConexão: {conexao}\n",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if resposta == QMessageBox.No:
             show_notification("Cancelado", "Operação cancelada", "info", 2000)
             return
         self.dlg.close()
-        sucesso = self.executar_poligonizacao(conexao)
+        self.executar_poligonizacao(conexao)
         self.resetar_estado_plugin()
-        if sucesso[0]:
-            show_notification("✅ Concluído", f"Poligonização finalizada!\nTotal de {sucesso[1]} lote(s) gerado(s)", "success", 8000)
-        else:
-            show_notification("⚠️ Aviso", "A linha do lote não toca na borda da quadra.\nVerifique se as linhas alcançam as bordas.", "warning", 8000)
-    
+
     def on_cancelar(self):
         self.resetar_estado_plugin()
         self.dlg.close()
         show_notification("Cancelado", "Operação cancelada. Plugin resetado.", "info", 2000)
-    
+
     def adicionar_linhas_corte_temporarias(self, linhas_output):
         try:
             for layer in QgsProject.instance().mapLayersByName("Linhas_corte_processadas"):
@@ -354,7 +364,7 @@ class PoligonizadorLinhaCorte:
                 print('Falha ao criar camada temporária')
         except Exception as e:
             show_notification("ERRO", f"Erro nas linhas temporárias: {e}", "error")
-    
+
     def atualizar_camada_lotes(self, lotes_gerados):
         try:
             conexao_nome = self.dlg.combo_conexao.currentData()
@@ -387,7 +397,7 @@ class PoligonizadorLinhaCorte:
                     show_notification("Aviso", f"Falha ao carregar Lote:\n{layer.error().message()}", "warning")
         except Exception as e:
             show_notification("Erro", f"Erro ao atualizar Lote: {e}", "error")
-    
+
     def executar_poligonizacao(self, conexao_nome):
         try:
             quadra_layer = QgsProject.instance().mapLayersByName('Quadra')
@@ -404,27 +414,23 @@ class PoligonizadorLinhaCorte:
                 return [False, 0]
             linhas_layer = linhas[0]
             relatorio_quadras = {'processadas': [], 'ignoradas': [], 'total_lotes': 0}
-            show_notification("Processando", "Iniciando análise das quadras...", "info", 2000)
-            
+
             for quadra_feature in quadra_layer.getSelectedFeatures():
                 try:
                     quadra_geom = quadra_feature.geometry()
                     ins_quadra = quadra_feature['ins_quadra'] if 'ins_quadra' in quadra_feature.fields().names() else f"ID {quadra_feature.id()}"
                     quadra_id = quadra_feature['id'] if 'id' in quadra_feature.fields().names() else quadra_feature.id()
-                    
+
                     linhas_dentro = [f for f in linhas_layer.getFeatures() if f.geometry().intersects(quadra_geom)]
-                    
+
                     if not linhas_dentro:
                         relatorio_quadras['ignoradas'].append({'inscricao': ins_quadra, 'id': quadra_id, 'motivo': 'Sem linhas de corte'})
                         continue
-                    
-                    # SIMPLIFICADO: Apenas verificar se há linhas, sem validação prévia
-                    # A validação será feita pelo filtro de área depois
-                    
+
                     quadra_layer.selectByIds([quadra_feature.id()])
                     feedback = QgsProcessingMultiStepFeedback(16, None)
                     outputs = {}
-                    
+
                     steps = [
                         ('native:saveselectedfeatures', {'INPUT': quadra_layer}, 'ExtrairFeicoes'),
                         ('native:extractbylocation', {'INPUT': linhas_layer, 'INTERSECT': 'ExtrairFeicoes', 'PREDICATE': [0]}, 'LinhasDentroQuadra'),
@@ -442,7 +448,7 @@ class PoligonizadorLinhaCorte:
                         ('native:extractbyexpression', {'INPUT': 'JoinAreas', 'EXPRESSION': '"area_lote" < ("area_quadra" * 0.95)'}, 'FiltrarLotesValidos'),
                         ('qgis:deletecolumn', {'INPUT': 'FiltrarLotesValidos', 'COLUMN': ['area_lote', 'area_quadra']}, 'RemoverCamposAux'),
                     ]
-                    
+
                     for i, (alg, params, key) in enumerate(steps):
                         feedback.setCurrentStep(i)
                         for k, v in params.items():
@@ -452,27 +458,27 @@ class PoligonizadorLinhaCorte:
                                 params[k] = [outputs[x]['OUTPUT'] if x in outputs else x for x in v]
                         params['OUTPUT'] = QgsProcessing.TEMPORARY_OUTPUT
                         outputs[key] = processing.run(alg, params, feedback=feedback)
-                    
+
                     feedback.setCurrentStep(15)
                     fields_mapping = [
                         {'expression': f'aggregate(layer:=\'Quadra\', aggregate:=\'max\', expression:="{field}", filter:=intersects($geometry, geometry(@parent)))',
                         'length': -1, 'name': name, 'precision': 0, 'type': 4}
-                        for field, name in [('id_localidade', 'id_localidade'), ('id_setor', 'id_setor'), 
+                        for field, name in [('id_localidade', 'id_localidade'), ('id_setor', 'id_setor'),
                                         ('id_bairro', 'id_bairro'), ('id', 'id_quadra'), ('ins_quadra', 'ins_quadra')]
                     ] + [
                         {'expression': '\'Habitado\'', 'length': -1, 'name': 'sit_imovel', 'precision': 0, 'type': 10},
                         {'expression': '@user_account_name || \' - \' || @user_full_name', 'length': -1, 'name': 'usuario', 'precision': 0, 'type': 10},
                         {'expression': 'to_date(now())', 'length': -1, 'name': 'data_atual', 'precision': 0, 'type': 14}
                     ]
-                    
+
                     outputs['EditarCampos'] = processing.run('native:refactorfields', {
                         'FIELDS_MAPPING': fields_mapping,
                         'INPUT': outputs['RemoverCamposAux']['OUTPUT'],
                         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
                     }, feedback=feedback)
-                    
+
                     lotes_gerados = outputs['EditarCampos']['OUTPUT'].featureCount()
-                    
+
                     if lotes_gerados > 0:
                         processing.run('gdal:importvectorintopostgisdatabaseavailableconnections', {
                             'ADDFIELDS': False, 'APPEND': True, 'A_SRS': QgsCoordinateReferenceSystem('EPSG:31984'),
@@ -480,29 +486,29 @@ class PoligonizadorLinhaCorte:
                             'LAUNDER': False, 'OVERWRITE': False, 'PRECISION': True, 'PROMOTETOMULTI': False,
                             'SCHEMA': 'comercial_umc', 'TABLE': 'v_lote', 'SKIPFAILURES': False
                         }, feedback=feedback)
-                        
+
                         relatorio_quadras['processadas'].append({'inscricao': ins_quadra, 'id': quadra_id, 'lotes': lotes_gerados})
                         relatorio_quadras['total_lotes'] += lotes_gerados
                         self.adicionar_linhas_corte_temporarias(outputs['EstenderLinhas']['OUTPUT'])
                     else:
                         relatorio_quadras['ignoradas'].append({'inscricao': ins_quadra, 'id': quadra_id, 'motivo': 'Linhas não alcançam a borda (lote=quadra)'})
-                        
+
                 except Exception as e:
                     import traceback
                     erro_detalhado = traceback.format_exc()
                     print(f"Erro ao processar quadra {ins_quadra}: {erro_detalhado}")
                     relatorio_quadras['ignoradas'].append({'inscricao': ins_quadra, 'id': quadra_id, 'motivo': f'Erro: {str(e)[:50]}'})
-            
+
             if relatorio_quadras['total_lotes'] > 0:
                 self.atualizar_camada_lotes(relatorio_quadras['total_lotes'])
-            
+
             return self._gerar_relatorio_final(relatorio_quadras)
-            
+
         except Exception as e:
             import traceback
             show_notification("Erro", f"Falha na poligonização:\n{e}\n{traceback.format_exc()}", "error")
             return [False, 0]
-    
+
     def _gerar_relatorio_final(self, relatorio):
         total_selecionadas = len(relatorio['processadas']) + len(relatorio['ignoradas'])
         mensagem_partes = []
@@ -518,15 +524,15 @@ class PoligonizadorLinhaCorte:
                 mensagem_partes.append(f"     Motivo: {item['motivo']}")
         mensagem_completa = "\n".join(mensagem_partes)
         if not relatorio['processadas']:
-            show_notification("⚠️ Nenhuma Quadra Processada", mensagem_completa, "warning", 12000)
+            QMessageBox.information(None, "📊 Relatório de Processamento", mensagem_completa)
             return [False, 0]
         elif relatorio['ignoradas']:
             QMessageBox.information(None, "📊 Relatório de Processamento", mensagem_completa)
-            return [True, relatorio['total_lotes']]
+            return [True,  3]
         else:
-            show_notification("✅ Sucesso Total", mensagem_completa, "success", 10000)
+            QMessageBox.information(None, "📊 Relatório de Processamento", mensagem_completa)
             return [True, relatorio['total_lotes']]
-    
+
     def resetar_estado_plugin(self):
         try:
             quadra_layers = QgsProject.instance().mapLayersByName('Quadra')
@@ -552,7 +558,7 @@ class PoligonizadorLinhaCorte:
                     self.dlg.combo_conexao.setCurrentIndex(0)
         except Exception as e:
             print(f"Erro ao resetar: {e}")
-    
+
     def run(self):
         if self.first_start:
             self.first_start = False
@@ -563,7 +569,72 @@ class PoligonizadorLinhaCorte:
                 self.dlg.btn_cancelar.clicked.connect(self.on_cancelar)
             if hasattr(self.dlg, 'btn_ok'):
                 self.dlg.btn_ok.clicked.connect(self.finalizar_selecao_quadras)
+            if hasattr(self.dlg, 'btn_remover_lotes'):
+                self.dlg.btn_remover_lotes.clicked.connect(self.remover_lotes_da_quadra_selecionada)
         self.resetar_estado_plugin()
         self.popular_conexoes()
         self.dlg.show()
         return {}
+
+    def remover_lotes_da_quadra_selecionada(self):
+        
+        try:
+            # Verifica se há quadras selecionadas
+            quadra_layers = QgsProject.instance().mapLayersByName('Quadra')
+            if not quadra_layers or quadra_layers[0].selectedFeatureCount() == 0:
+                show_notification("Aviso", "Selecione ao menos uma quadra!", "warning", 3000)
+                return
+
+            # Verifica se a camada de lotes existe
+            lote_layers = QgsProject.instance().mapLayersByName('Lote')
+            if not lote_layers:
+                show_notification("Erro", "Camada 'Lote' não encontrada!", "error")
+                return
+
+            lote_layer = lote_layers[0]
+            quadra_layer = quadra_layers[0]
+
+            # Confirmação do usuário
+            resposta = QMessageBox.question(
+                self.dlg, "Confirmar Remoção",
+                f"Remover todos os lotes das {quadra_layer.selectedFeatureCount()} quadra(s) selecionada(s)?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+
+            if resposta == QMessageBox.No:
+                show_notification("Cancelado", "Remoção cancelada.", "info", 2000)
+                return
+
+            # Inicia a edição da camada de lotes
+            lote_layer.startEditing()
+
+            # Itera sobre as quadras selecionadas
+            quadras_selecionadas = quadra_layer.getSelectedFeatures()
+            lotes_removidos = 0
+
+            for quadra in quadras_selecionadas:
+                quadra_geom = quadra.geometry()
+                
+
+                # Seleciona todos os lotes que intersectam a quadra
+                lote_layer.selectByExpression(f"intersects($geometry, geom_from_wkt('{quadra_geom.asWkt()}'))")
+
+                # Remove os lotes selecionados
+                if lote_layer.selectedFeatureCount() > 0:
+                    print(lote_layer.selectedFeatureCount())
+                    lotes_removidos += lote_layer.selectedFeatureCount()
+                    lote_layer.deleteSelectedFeatures()
+                    
+            
+            # Salva as alterações
+            lote_layer.commitChanges()
+
+            # Atualiza a camada
+            lote_layer.triggerRepaint()
+            QgsProject.instance().layerTreeRoot().findLayer(lote_layer.id()).setItemVisibilityChecked(True)
+
+            # Exibe notificação de sucesso
+            show_notification("Sucesso", f"{lotes_removidos} lote(s) removido(s).", "success", 3000)
+
+        except Exception as e:
+            show_notification("Erro", f"Falha ao remover lotes: {e}", "error")
