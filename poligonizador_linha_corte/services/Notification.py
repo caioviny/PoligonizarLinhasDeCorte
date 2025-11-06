@@ -1,11 +1,19 @@
 """
 Sistema de Notificações Modernas para QGIS
-Arquivo: notification_system.py
+Módulo independente e reutilizável
+Resolve problema de travamento ao usar notificações rapidamente
+
+Uso em qualquer projeto:
+    from services.notification import show_notification
+    
+    show_notification("Título", "Mensagem", "success", 3000)
 """
 
-from qgis.PyQt.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtSignal
+from qgis.PyQt.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtSignal, QObject
 from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QWidget
 from qgis.utils import iface as global_iface
+from collections import deque
+import time
 
 
 class ModernNotification(QFrame):
@@ -190,18 +198,114 @@ class ModernNotification(QFrame):
         self.saida_anim.start()
 
 
-class NotificationManager:
-    """Gerenciador de notificações"""
+class NotificationManager(QObject):
+    """
+    Gerenciador de notificações com controle de taxa
+    ✅ RESOLVE TRAVAMENTO: Controla velocidade de exibição
+    """
     
-    def __init__(self, parent_window=None):
+    def __init__(self, parent_window=None, intervalo_minimo_ms=300, max_fila=30):
+        super().__init__()
+        
         self.parent = parent_window
         self.notifications = []
         self.spacing = 10
+        
+        # ✅ Controle de taxa para evitar travamento
+        self.intervalo_minimo = intervalo_minimo_ms
+        self.max_fila = max_fila
+        self.fila = deque(maxlen=max_fila)
+        self.ultima_notificacao_tempo = 0
+        
+        # Timer para processar fila
+        self.timer_processamento = QTimer()
+        self.timer_processamento.setSingleShot(False)
+        self.timer_processamento.timeout.connect(self._processar_fila)
+        
+        # Debounce para notificações similares
+        self.debounce_timers = {}
     
-    def show_notification(self, titulo, mensagem, tipo="success", duracao=3000):
-        """Mostra uma nova notificação"""
-        # Obter geometria da tela
+    def show_notification(self, titulo, mensagem, tipo="success", duracao=3000, debounce=0):
+        """
+        Mostra notificação com controle inteligente
+        
+        Args:
+            titulo: Título da notificação
+            mensagem: Mensagem detalhada
+            tipo: "success", "error", "warning", "info"
+            duracao: Duração em ms
+            debounce: Delay antes de mostrar (agrupa notificações rápidas)
+        """
+        # Se tem debounce, agrupa notificações similares
+        if debounce > 0:
+            chave = f"{titulo}_{tipo}"
+            
+            # Cancela timer anterior se existir
+            if chave in self.debounce_timers:
+                self.debounce_timers[chave].stop()
+            
+            # Cria novo timer
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(
+                lambda: self._adicionar_na_fila(titulo, mensagem, tipo, duracao)
+            )
+            timer.start(debounce)
+            self.debounce_timers[chave] = timer
+            return
+        
+        # Adiciona direto na fila
+        self._adicionar_na_fila(titulo, mensagem, tipo, duracao)
+    
+    def _adicionar_na_fila(self, titulo, mensagem, tipo, duracao):
+        """Adiciona notificação na fila de processamento"""
+        # Previne overflow da fila
+        if len(self.fila) >= self.max_fila:
+            # Mostra aviso de overflow
+            self._mostrar_overflow_warning()
+            self.fila.clear()
+        
+        # Adiciona na fila
+        self.fila.append({
+            'titulo': titulo,
+            'mensagem': mensagem,
+            'tipo': tipo,
+            'duracao': duracao,
+            'timestamp': time.time()
+        })
+        
+        # Inicia processamento se não estiver ativo
+        if not self.timer_processamento.isActive():
+            self.timer_processamento.start(self.intervalo_minimo)
+    
+    def _processar_fila(self):
+        """Processa fila de notificações respeitando taxa máxima"""
+        if not self.fila:
+            self.timer_processamento.stop()
+            return
+        
+        # Verifica se já pode mostrar próxima notificação
+        tempo_atual = time.time() * 1000
+        tempo_decorrido = tempo_atual - self.ultima_notificacao_tempo
+        
+        if tempo_decorrido < self.intervalo_minimo:
+            return
+        
+        # Remove da fila e mostra
+        notif = self.fila.popleft()
+        self._mostrar_notificacao_real(
+            notif['titulo'],
+            notif['mensagem'],
+            notif['tipo'],
+            notif['duracao']
+        )
+        
+        self.ultima_notificacao_tempo = tempo_atual
+    
+    def _mostrar_notificacao_real(self, titulo, mensagem, tipo, duracao):
+        """Mostra notificação na tela (função interna)"""
         try:
+            # Obter geometria da tela
             if global_iface and global_iface.mainWindow():
                 screen_geometry = global_iface.mainWindow().screen().geometry()
             else:
@@ -225,8 +329,17 @@ class NotificationManager:
         # Mostrar
         notification.mostrar(QPoint(x, y))
         
-        # Reposicionar outras notificações
+        # Reposicionar outras
         self.reposition_notifications()
+    
+    def _mostrar_overflow_warning(self):
+        """Mostra aviso quando fila está cheia"""
+        self._mostrar_notificacao_real(
+            "⚠️ Muitas Notificações",
+            f"Fila cheia ({self.max_fila}+). Algumas descartadas.",
+            "warning",
+            3000
+        )
     
     def remove_notification(self, notification):
         """Remove notificação da lista"""
@@ -261,34 +374,91 @@ class NotificationManager:
             
             # Manter referência
             notif.reposition_anim = anim
+    
+    def clear(self):
+        """Limpa todas as notificações e fila"""
+        self.fila.clear()
+        self.timer_processamento.stop()
+        for timer in self.debounce_timers.values():
+            timer.stop()
+        self.debounce_timers.clear()
+    
+    def cancel(self):
+        """Alias para clear()"""
+        self.clear()
 
 
-# Gerenciador global
+# ==================== INTERFACE PÚBLICA ====================
+
+# Singleton global
 _notification_manager = None
 
 
-def show_notification(titulo, mensagem, tipo="success", duracao=5000):
+def get_notification_manager():
     """
-    Função global para mostrar notificações modernas no QGIS
+    Retorna instância singleton do gerenciador
+    Útil quando você precisa de controle avançado (clear, cancel, etc)
+    
+    Exemplo:
+        manager = get_notification_manager()
+        manager.clear()  # Limpa todas notificações
+    """
+    global _notification_manager
+    
+    if _notification_manager is None:
+        parent = global_iface.mainWindow() if global_iface else None
+        _notification_manager = NotificationManager(
+            parent_window=parent,
+            intervalo_minimo_ms=300,  # 300ms entre notificações
+            max_fila=3  # Máximo 30 notificações na fila
+        )
+    
+    return _notification_manager
+
+
+def show_notification(titulo, mensagem, tipo="success", duracao=3000, debounce=0):
+    """
+    Função principal para mostrar notificações
+    ✅ USO RECOMENDADO - Simples e direto
     
     Args:
         titulo: Título da notificação
         mensagem: Mensagem detalhada
-        tipo: Tipo da notificação ("success", "error", "warning", "info")
-        duracao: Duração em milissegundos (padrão 5000ms = 5s)
+        tipo: "success", "error", "warning", "info"
+        duracao: Duração em milissegundos (padrão 3000ms = 3s)
+        debounce: Delay para agrupar notificações similares (0 = desabilitado)
     
-    Exemplos de uso:
-        show_notification("Sucesso!", "Operação realizada com sucesso!", "success")
-        show_notification("Atenção", "Selecione uma quadra válida!", "warning")
-        show_notification("Erro", "Não foi possível processar!", "error")
-        show_notification("Info", "Processamento iniciado...", "info")
+    Exemplos:
+        # Básico
+        show_notification("Sucesso!", "Operação concluída", "success")
+        
+        # Com duração customizada
+        show_notification("Processando", "Aguarde...", "info", 5000)
+        
+        # Com debounce (agrupa cliques rápidos)
+        show_notification("Selecionado", "Item X", "info", 1500, debounce=500)
+        
+        # Diferentes tipos
+        show_notification("Atenção", "Verifique os dados", "warning")
+        show_notification("Erro", "Falha na operação", "error")
     """
-    global _notification_manager
-    
-    # Criar gerenciador se não existir
-    if _notification_manager is None:
-        parent = global_iface.mainWindow() if global_iface else None
-        _notification_manager = NotificationManager(parent)
-    
-    # Mostrar notificação
-    _notification_manager.show_notification(titulo, mensagem, tipo, duracao)
+    manager = get_notification_manager()
+    manager.show_notification(titulo, mensagem, tipo, duracao, debounce)
+
+
+# ==================== UTILITÁRIOS EXTRAS ====================
+
+def clear_all_notifications():
+    """
+    Limpa todas as notificações da tela e fila
+    Útil ao fechar aplicação ou resetar estado
+    """
+    manager = get_notification_manager()
+    manager.clear()
+
+
+def cancel_pending_notifications():
+    """
+    Cancela notificações pendentes (alias para clear_all_notifications)
+    """
+    clear_all_notifications()

@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QPushButton, QFrame, QGraphicsDropShadowEffect,
-                             QSizePolicy, QStyledItemDelegate, QListView, QApplication)
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap, QPen, QBrush, QLinearGradient, QPalette
+                             QSizePolicy, QStyledItemDelegate, QListView, QApplication,QScrollArea,QTextEdit,QWidget)
+from PyQt5.QtCore import Qt, QSize,QTimer,QPropertyAnimation,QEasingCurve
+from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap, QPen, QBrush, QLinearGradient, QPalette,QIcon
 import os
 import sys
 
@@ -124,7 +124,564 @@ class ModernButton(QPushButton):
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignCenter, self.text())
 
+class ReportDialog(QDialog):
+    """Diálogo moderno para exibição de relatórios"""
+    
+    def __init__(self, titulo, mensagem, tipo="info", detalhes=None, parent=None):
+        """
+        Args:
+            titulo (str): Título do relatório
+            mensagem (str): Mensagem principal
+            tipo (str): Tipo do relatório ('success', 'warning', 'error', 'info', 'partial')
+            detalhes (dict): Dicionário com detalhes estruturados (opcional)
+            parent: Widget pai
+        """
+        super().__init__(parent)
+        self.tipo = tipo
+        self.detalhes = detalhes
+        
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self.setModal(True)
+        self.setMinimumWidth(600)
+        self.setMaximumWidth(800)
+        
+        self._setup_ui(titulo, mensagem)
+        self._aplicar_estilo()
+        self._animar_entrada()
+    
+    def _setup_ui(self, titulo, mensagem):
+        """Configura a interface do diálogo"""
+        layout_principal = QVBoxLayout()
+        layout_principal.setSpacing(0)
+        layout_principal.setContentsMargins(0, 0, 0, 0)
+        
+        # ==================== HEADER ====================
+        header = self._criar_header(titulo)
+        layout_principal.addWidget(header)
+        
+        # ==================== CONTEÚDO ====================
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        conteudo_widget = QWidget()
+        conteudo_layout = QVBoxLayout(conteudo_widget)
+        conteudo_layout.setContentsMargins(30, 20, 30, 20)
+        conteudo_layout.setSpacing(20)
+        
+        # Mensagem principal
+        msg_label = QLabel(mensagem)
+        msg_label.setWordWrap(True)
+        msg_label.setObjectName("mensagemPrincipal")
+        conteudo_layout.addWidget(msg_label)
+        
+        # Detalhes estruturados
+        if self.detalhes:
+            detalhes_widget = self._criar_detalhes_widget()
+            conteudo_layout.addWidget(detalhes_widget)
+        
+        conteudo_layout.addStretch()
+        scroll.setWidget(conteudo_widget)
+        layout_principal.addWidget(scroll, 1)
+        
+        # ==================== FOOTER (BOTÕES) ====================
+        footer = self._criar_footer()
+        layout_principal.addWidget(footer)
+        
+        self.setLayout(layout_principal)
+    
+    def _criar_header(self, titulo):
+        """Cria o header colorido do diálogo"""
+        header_widget = QFrame()
+        header_widget.setObjectName("headerFrame")
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(30, 25, 30, 25)
+        header_layout.setSpacing(15)
+        
+        # Ícone
+        icone_label = QLabel()
+        icone_label.setFixedSize(48, 48)
+        icone_label.setScaledContents(True)
+        icone_label.setPixmap(self._get_icone_pixmap())
+        header_layout.addWidget(icone_label)
+        
+        # Título
+        titulo_label = QLabel(titulo)
+        titulo_label.setObjectName("tituloLabel")
+        titulo_label.setWordWrap(True)
+        header_layout.addWidget(titulo_label, 1)
+        
+        return header_widget
+    
+    def _criar_detalhes_widget(self):
+        """Cria widget com detalhes estruturados"""
+        container = QFrame()
+        container.setObjectName("detalhesContainer")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(15)
+        
+        # Processadas
+        if self.detalhes.get('processadas'):
+            processadas_frame = self._criar_secao_processadas()
+            layout.addWidget(processadas_frame)
+        
+        # Ignoradas
+        if self.detalhes.get('ignoradas'):
+            ignoradas_frame = self._criar_secao_ignoradas()
+            layout.addWidget(ignoradas_frame)
+        
+        # Resumo
+        resumo_frame = self._criar_secao_resumo()
+        layout.addWidget(resumo_frame)
+        
+        return container
+    
+    def _criar_secao_processadas(self):
+        """Cria seção de quadras/lotes processados"""
+        frame = QFrame()
+        frame.setObjectName("secaoProcessadas")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(10)
+        
+        # Título da seção
+        titulo = QLabel(f"✅ {len(self.detalhes['processadas'])} Quadra(s) Processada(s)")
+        titulo.setObjectName("tituloSecao")
+        layout.addWidget(titulo)
+        
+        # Lista de itens
+        for item in self.detalhes['processadas']:
+            item_widget = self._criar_item_processado(item)
+            layout.addWidget(item_widget)
+        
+        return frame
+    
+    def _criar_secao_ignoradas(self):
+        """Cria seção de quadras/lotes ignorados"""
+        frame = QFrame()
+        frame.setObjectName("secaoIgnoradas")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(10)
+        
+        # Título da seção
+        titulo = QLabel(f"❌ {len(self.detalhes['ignoradas'])} Quadra(s) Ignorada(s)")
+        titulo.setObjectName("tituloSecao")
+        layout.addWidget(titulo)
+        
+        # Lista de itens
+        for item in self.detalhes['ignoradas']:
+            item_widget = self._criar_item_ignorado(item)
+            layout.addWidget(item_widget)
+        
+        return frame
+    
+    def _criar_secao_resumo(self):
+        """Cria seção de resumo com estatísticas"""
+        frame = QFrame()
+        frame.setObjectName("secaoResumo")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(10)
+        
+        titulo = QLabel("📊 Resumo")
+        titulo.setObjectName("tituloSecao")
+        layout.addWidget(titulo)
+        
+        # Estatísticas
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(20)
+        
+        # Total de quadras
+        total_quadras = len(self.detalhes.get('processadas', [])) + len(self.detalhes.get('ignoradas', []))
+        stats_layout.addWidget(self._criar_stat_card("Total de Quadras", str(total_quadras), "#5f6368"))
+        
+        # Total de lotes (se aplicável)
+        if 'total_lotes' in self.detalhes:
+            stats_layout.addWidget(self._criar_stat_card("Lotes Gerados", str(self.detalhes['total_lotes']), "#1a73e8"))
+        
+        # Total removidos (se aplicável)
+        if 'total_removidos' in self.detalhes:
+            stats_layout.addWidget(self._criar_stat_card("Lotes Removidos", str(self.detalhes['total_removidos']), "#ea4335"))
+        
+        stats_layout.addStretch()
+        layout.addLayout(stats_layout)
+        
+        return frame
+    
+    def _criar_item_processado(self, item):
+        """Cria widget para item processado"""
+        widget = QFrame()
+        widget.setObjectName("itemProcessado")
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(10)
+        
+        # Inscrição
+        inscricao_label = QLabel(f"<b>Insc:</b> {item['inscricao']}")
+        inscricao_label.setObjectName("itemLabel")
+        layout.addWidget(inscricao_label)
+        
+        layout.addStretch()
+        
+        # Resultado
+        if 'lotes' in item:
+            resultado_label = QLabel(f"<b>{item['lotes']}</b> lote(s)")
+        elif 'lotes_removidos' in item:
+            resultado_label = QLabel(f"<b>{item['lotes_removidos']}</b> removido(s)")
+        else:
+            resultado_label = QLabel("Processado")
+        
+        resultado_label.setObjectName("resultadoLabel")
+        layout.addWidget(resultado_label)
+        
+        return widget
+    
+    def _criar_item_ignorado(self, item):
+        """Cria widget para item ignorado"""
+        widget = QFrame()
+        widget.setObjectName("itemIgnorado")
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(5)
+        
+        # Inscrição
+        inscricao_label = QLabel(f"<b>Insc:</b> {item['inscricao']}")
+        inscricao_label.setObjectName("itemLabel")
+        layout.addWidget(inscricao_label)
+        
+        # Motivo
+        motivo_label = QLabel(f"<i>Motivo:</i> {item['motivo']}")
+        motivo_label.setObjectName("motivoLabel")
+        motivo_label.setWordWrap(True)
+        layout.addWidget(motivo_label)
+        
+        return widget
+    
+    def _criar_stat_card(self, titulo, valor, cor):
+        """Cria card de estatística"""
+        card = QFrame()
+        card.setObjectName("statCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setSpacing(5)
+        
+        valor_label = QLabel(valor)
+        valor_label.setObjectName("statValor")
+        valor_label.setStyleSheet(f"color: {cor}; font-size: 24px; font-weight: 700;")
+        layout.addWidget(valor_label)
+        
+        titulo_label = QLabel(titulo)
+        titulo_label.setObjectName("statTitulo")
+        titulo_label.setStyleSheet("color: #5f6368; font-size: 12px;")
+        layout.addWidget(titulo_label)
+        
+        return card
+    
+    def _criar_footer(self):
+        """Cria footer com botões"""
+        footer_widget = QFrame()
+        footer_widget.setObjectName("footerFrame")
+        footer_layout = QHBoxLayout(footer_widget)
+        footer_layout.setContentsMargins(30, 20, 30, 20)
+        footer_layout.setSpacing(10)
+        
+        footer_layout.addStretch()
+        
+        # Botão OK
+        btn_ok = QPushButton("OK")
+        btn_ok.setObjectName("btnOk")
+        btn_ok.setMinimumWidth(120)
+        btn_ok.setMinimumHeight(40)
+        btn_ok.setCursor(Qt.PointingHandCursor)
+        btn_ok.clicked.connect(self.accept)
+        footer_layout.addWidget(btn_ok)
+        
+        return footer_widget
+    
+    def _get_icone_pixmap(self):
+        """Retorna ícone baseado no tipo"""
+        size = 48
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Cores por tipo
+        cores = {
+            'success': QColor('#34a853'),
+            'warning': QColor('#fbbc04'),
+            'error': QColor('#ea4335'),
+            'info': QColor('#1a73e8'),
+            'partial': QColor('#ff6d00')
+        }
+        
+        cor = cores.get(self.tipo, QColor('#1a73e8'))
+        
+        # Desenha círculo
+        painter.setBrush(cor)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(4, 4, size-8, size-8)
+        
+        # Desenha ícone
+        painter.setPen(QColor('#ffffff'))
+        font = QFont('Arial', 20, QFont.Bold)
+        painter.setFont(font)
+        
+        icones = {
+            'success': '✓',
+            'warning': '!',
+            'error': '✕',
+            'info': 'i',
+            'partial': '≈'
+        }
+        
+        icone = icones.get(self.tipo, 'i')
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, icone)
+        
+        painter.end()
+        return pixmap
+    
+    def _aplicar_estilo(self):
+        """Aplica stylesheet ao diálogo"""
+        cores_header = {
+            'success': '#e6f4ea',
+            'warning': '#fef7e0',
+            'error': '#fce8e6',
+            'info': '#e8f0fe',
+            'partial': '#fff3e0'
+        }
+        
+        cores_border = {
+            'success': '#34a853',
+            'warning': '#fbbc04',
+            'error': '#ea4335',
+            'info': '#1a73e8',
+            'partial': '#ff6d00'
+        }
+        
+        header_bg = cores_header.get(self.tipo, '#e8f0fe')
+        border_color = cores_border.get(self.tipo, '#1a73e8')
+        
+        stylesheet = f"""
+            QDialog {{
+                background-color: #ffffff;
+            }}
+            
+            #headerFrame {{
+                background-color: {header_bg};
+                border-bottom: 3px solid {border_color};
+            }}
+            
+            #tituloLabel {{
+                font-size: 20px;
+                font-weight: 700;
+                color: #202124;
+            }}
+            
+            #mensagemPrincipal {{
+                font-size: 14px;
+                color: #3c4043;
+                line-height: 1.6;
+            }}
+            
+            #detalhesContainer {{
+                background-color: transparent;
+            }}
+            
+            #secaoProcessadas, #secaoIgnoradas, #secaoResumo {{
+                background-color: #f8f9fa;
+                border: 1px solid #e1e4e8;
+                border-radius: 8px;
+            }}
+            
+            #tituloSecao {{
+                font-size: 15px;
+                font-weight: 600;
+                color: #202124;
+            }}
+            
+            #itemProcessado {{
+                background-color: #ffffff;
+                border: 1px solid #d1f4dd;
+                border-left: 4px solid #34a853;
+                border-radius: 6px;
+            }}
+            
+            #itemIgnorado {{
+                background-color: #ffffff;
+                border: 1px solid #f9d6d2;
+                border-left: 4px solid #ea4335;
+                border-radius: 6px;
+            }}
+            
+            #itemLabel {{
+                font-size: 13px;
+                color: #202124;
+            }}
+            
+            #resultadoLabel {{
+                font-size: 13px;
+                color: #34a853;
+                font-weight: 600;
+            }}
+            
+            #motivoLabel {{
+                font-size: 12px;
+                color: #5f6368;
+            }}
+            
+            #statCard {{
+                background-color: #ffffff;
+                border: 1px solid #e1e4e8;
+                border-radius: 8px;
+                min-width: 120px;
+            }}
+            
+            #footerFrame {{
+                background-color: #f8f9fa;
+                border-top: 1px solid #e1e4e8;
+            }}
+            
+            #btnOk {{
+                background-color: {border_color};
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 10px 30px;
+            }}
+            
+            #btnOk:hover {{
+                background-color: {self._escurecer_cor(border_color)};
+            }}
+            
+            #btnOk:pressed {{
+                background-color: {self._escurecer_cor(border_color, 0.3)};
+            }}
+            
+            QScrollBar:vertical {{
+                background-color: #f1f3f4;
+                width: 10px;
+                border-radius: 5px;
+            }}
+            
+            QScrollBar::handle:vertical {{
+                background-color: #c5c9cd;
+                border-radius: 5px;
+                min-height: 30px;
+            }}
+            
+            QScrollBar::handle:vertical:hover {{
+                background-color: #9aa0a6;
+            }}
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """
+        
+        self.setStyleSheet(stylesheet)
+    
+    def _escurecer_cor(self, cor_hex, fator=0.15):
+        """Escurece uma cor hexadecimal"""
+        cor = QColor(cor_hex)
+        h, s, v, a = cor.getHsv()
+        v = max(0, int(v * (1 - fator)))
+        cor.setHsv(h, s, v, a)
+        return cor.name()
+    
+    def _animar_entrada(self):
+        """Anima a entrada do diálogo"""
+        self.setWindowOpacity(0.0)
+        
+        animation = QPropertyAnimation(self, b"windowOpacity")
+        animation.setDuration(250)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.OutCubic)
+        animation.start()
+        
+        # Guarda referência para não ser destruída
+        self._animation = animation
+
+
+
+def exibir_relatorio_processamento(relatorio, parent=None):
+    """
+    Exibe relatório de processamento de poligonização
+    
+    Args:
+        relatorio (dict): Dicionário com estrutura:
+            {
+                'processadas': [{'inscricao': '...', 'id': ..., 'lotes': ...}, ...],
+                'ignoradas': [{'inscricao': '...', 'id': ..., 'motivo': '...'}, ...],
+                'total_lotes': int
+            }
+        parent: Widget pai
+    
+    Returns:
+        int: Resultado do diálogo (QDialog.Accepted ou QDialog.Rejected)
+    """
+    # Determina tipo baseado no resultado
+    if not relatorio['processadas']:
+        tipo = 'warning'
+        titulo = ' Nenhuma Quadra Processada'
+        mensagem = 'Não foi possível processar nenhuma quadra. Verifique os detalhes abaixo.'
+    elif relatorio['ignoradas']:
+        tipo = 'partial'
+        titulo = 'Processamento Parcial'
+        mensagem = f"{len(relatorio['processadas'])} quadra(s) processada(s) com sucesso, mas {len(relatorio['ignoradas'])} foram ignoradas."
+    else:
+        tipo = 'success'
+        titulo = ' Processamento Concluído'
+        mensagem = f"Todas as {len(relatorio['processadas'])} quadra(s) foram processadas com sucesso!"
+    
+    dialog = ReportDialog(titulo, mensagem, tipo, relatorio, parent)
+    return dialog.exec_()
+
+
+def exibir_relatorio_remocao(relatorio, parent=None):
+    """
+    Exibe relatório de remoção de lotes
+    
+    Args:
+        relatorio (dict): Dicionário com estrutura:
+            {
+                'processadas': [{'inscricao': '...', 'id': ..., 'lotes_removidos': ...}, ...],
+                'ignoradas': [{'inscricao': '...', 'id': ..., 'motivo': '...'}, ...],
+                'total_removidos': int
+            }
+        parent: Widget pai
+    
+    Returns:
+        int: Resultado do diálogo (QDialog.Accepted ou QDialog.Rejected)
+    """
+    # Determina tipo baseado no resultado
+    if not relatorio['processadas']:
+        tipo = 'warning'
+        titulo = '⚠️  Nenhum Lote Removido'
+        mensagem = 'Não foi possível remover lotes. Verifique os detalhes abaixo.'
+    elif relatorio['ignoradas']:
+        tipo = 'partial'
+        titulo = ' Remoção Parcial'
+        mensagem = f"{relatorio['total_removidos']} lote(s) removido(s) de {len(relatorio['processadas'])} quadra(s), mas {len(relatorio['ignoradas'])} apresentaram problemas."
+    else:
+        tipo = 'success'
+        titulo = ' Remoção Concluída'
+        mensagem = f"Todos os {relatorio['total_removidos']} lote(s) foram removidos com sucesso de {len(relatorio['processadas'])} quadra(s)!"
+    
+    dialog = ReportDialog(titulo, mensagem, tipo, relatorio, parent)
+    return dialog.exec_()
+
+
+
 class PoligonizadorDialog(QDialog):
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -215,7 +772,7 @@ class PoligonizadorDialog(QDialog):
         # Info quadra
         self.lblQuadraSelecionada = QLabel("Nenhuma quadra selecionada")
         self.lblQuadraSelecionada.setObjectName("lblQuadra")
-        self.lblQuadraSelecionada.setFont(QFont("Segoe UI", 7))  # Reduzido de 8 para 7
+        self.lblQuadraSelecionada.setFont(QFont("Segoe UI", 9))  # Reduzido de 8 para 7
         self.lblQuadraSelecionada.setStyleSheet("""
             background-color: #f0f7ff;
             border: 1px solid #bbdefb;
